@@ -2,6 +2,22 @@ import base64
 import struct
 import socket
 
+# 2.22.multiply.test.com
+def multiply_ip(name):
+    tokens = name.lower().rstrip(".").split(".")
+    if "multiply" not in tokens:
+        return None
+    nums = []
+    for token in reversed(tokens[:tokens.index("multiply")]):
+        if not token.isdigit():
+            break
+        nums.append(int(token))
+    if not nums:
+        return None
+    x = 1
+    for n in nums:
+        x = x * n % 256
+    return f"127.0.0.{x}"
 
 
 def encode_name(name):
