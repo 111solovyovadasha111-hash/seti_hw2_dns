@@ -2,23 +2,6 @@ import base64
 import struct
 import socket
 
-# 2.22.multiply.test.com
-def multiply_ip(name):
-    tokens = name.lower().rstrip(".").split(".")
-    if "multiply" not in tokens:
-        return None
-    nums = []
-    for token in reversed(tokens[:tokens.index("multiply")]):
-        if not token.isdigit():
-            break
-        nums.append(int(token))
-    if not nums:
-        return None
-    x = 1
-    for n in nums:
-        x = x * n % 256
-    return f"127.0.0.{x}"
-
 
 def encode_name(name):
     out = b""
@@ -26,8 +9,31 @@ def encode_name(name):
         out += bytes([len(token)]) + token.encode("ascii")
     return out + b"\x00"
 
-qname = encode_name("insma.urfu.ru")   # один раз
-# в каждый запрос: header + qname + struct.pack("!HH", qtype, 1)
+
+def encode_resourse_record(rr):
+    out = encode_name(rr["name"])
+    if rr["type"] == 1:
+        rdata = socket.inet_aton(rr["data"])
+    elif rr["type"] == 28:
+        rdata = socket.inet_pton(socket.AF_INET6, rr["data"])
+    elif rr["type"] in (2, 5):
+        rdata = encode_name(rr["data"])
+    elif rr["type"] == 15: # тип mx, запись вида: приоритет + имя хоста почты
+        rdata = struct.pack("!H", rr["data"][0]) + encode_name(rr["data"][1])
+    elif rr["type"] == 16: # тип txt для каждой строки инфа + она сама
+        rdata = b"".join(bytes([len(s.encode())]) + s.encode() for s in rr["data"])
+    else:
+        raise ValueError("тип не поддерживается")
+    return out + struct.pack("!HHIH", rr["type"], rr["class"], rr["ttl"], len(rdata)) + rdata
+
+
+
+def build_response(request_id, bytes_question, response):
+    answers = [encode_resourse_record(rr) for rr in response["answers"]]
+    flags = 0x8000 | 0x0080 | response["rcode"]   # QR=1, RA=1, rcode
+    header = struct.pack("!HHHHHH", request_id, flags, 1, len(answers), 0, 0)
+    return header + bytes_question + b"".join(answers)
+
 
 def parse_name(data, offset):
     tokens = []
@@ -67,9 +73,9 @@ def parse_resourse_record(data, offset):
         value = socket.inet_ntop(socket.AF_INET6, rdata)
     elif rtype in (2, 5):# NS, CNAME
         value = parse_name(data, offset)[0]
-    elif rtype == 15:  # MX
-        pref = struct.unpack_from("!H", data, offset)[0]
-        value = (pref, parse_name(data, offset + 2)[0])
+    elif rtype == 15: # MX
+        priority = struct.unpack_from("!H", data, offset)[0]
+        value = (priority, parse_name(data, offset + 2)[0])
     elif rtype == 16:  # TXT
         value, i = [], 0
         while i < rdlen:

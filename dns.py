@@ -5,9 +5,38 @@ import socket
 
 ROOT = "198.41.0.4"
 
+
+# 2.22.multiply.test.com
+def multiply_ip(name):
+    tokens = name.lower().rstrip(".").split(".")
+    if "multiply" not in tokens:
+        return None
+    nums = []
+    for token in reversed(tokens[:tokens.index("multiply")]):
+        if token.isdigit():
+            nums.append(int(token))
+        else:
+            break
+    if not nums:
+        return None
+    x = 1
+    for n in nums:
+        x = x * n % 256
+    return f"127.0.0.{x}"
+
+
+def multiply_response(name, qtype, ip):
+    answers = []
+    if qtype == 1:
+        answers.append({"name": name, "type": 1, "class": 1,
+                        "ttl": 60, "data": ip})
+    return {"id": 0, "qr": 1, "aa": 1, "tc": 0, "rd": 0, "ra": 0, "rcode": 0,
+            "questions": [], "answers": answers,
+            "authority": [], "additional": []}
+
 def dns_query(server_ip, qname_bytes, qtype=1, timeout=3):
     id_=0x1234
-    header = struct.pack("!HHHHHH", id_, 0x0000, 1, 0, 0, 0)
+    header = struct.pack("!HHHHHH", id_, 0x0000, 1, 0, 0, 0) # запрос без рекурсии с 1 вопросом
     packet = header + qname_bytes + struct.pack("!HH", qtype, 1)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.settimeout(timeout)
@@ -19,6 +48,10 @@ def has_type(response, qtype):
     return any(rr["type"] == qtype for rr in response["answers"])
 
 def dns(name, server=ROOT, qtype=1, max_steps=25):
+    ip = multiply_ip(name)
+    if ip:
+        return multiply_response(name, qtype, ip)
+
     qname = encode_name(name)
 
     for step in range(max_steps):
@@ -60,6 +93,3 @@ def dns(name, server=ROOT, qtype=1, max_steps=25):
         server = next_ip
 
     raise RuntimeError(f"не успели найти сервер за {max_steps} шагов")
-
-resp = dns("qqqq.github.com")
-print(resp)
